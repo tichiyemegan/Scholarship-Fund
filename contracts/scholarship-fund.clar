@@ -1,30 +1,43 @@
+;; scholarship-fund
+;; A transparent scholarship fund smart contract
 
-;; title: scholarship-fund
-;; version:
-;; summary:
-;; description:
+;; Constants
+(define-constant contract-owner tx-sender)
+(define-constant err-owner-only (err u100))
+(define-constant err-insufficient-funds (err u101))
 
-;; traits
-;;
+;; Data Variables
+(define-data-var total-funds uint u0)
 
-;; token definitions
-;;
+;; Data Maps
+(define-map donors principal uint)
+(define-map scholars 
+    principal 
+    {amount: uint, status: (string-ascii 20)})
 
-;; constants
-;;
+;; Public Functions
+(define-public (donate-funds (amount uint))
+    (begin
+        (try! (stx-transfer? amount tx-sender (as-contract tx-sender)))
+        (map-set donors tx-sender amount)
+        (var-set total-funds (+ (var-get total-funds) amount))
+        (ok amount)))
 
-;; data vars
-;;
+(define-public (award-scholarship (scholar principal) (amount uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (asserts! (<= amount (var-get total-funds)) err-insufficient-funds)
+        (try! (as-contract (stx-transfer? amount (as-contract tx-sender) scholar)))
+        (map-set scholars scholar {amount: amount, status: "awarded"})
+        (var-set total-funds (- (var-get total-funds) amount))
+        (ok amount)))
 
-;; data maps
-;;
+;; Read-only Functions
+(define-read-only (get-total-funds)
+    (var-get total-funds))
 
-;; public functions
-;;
+(define-read-only (get-donor-contribution (donor principal))
+    (default-to u0 (map-get? donors donor)))
 
-;; read only functions
-;;
-
-;; private functions
-;;
-
+(define-read-only (get-scholar-info (scholar principal))
+    (map-get? scholars scholar))
