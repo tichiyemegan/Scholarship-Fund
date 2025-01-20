@@ -1,3 +1,5 @@
+
+```markdown
 # Scholarship Fund Smart Contract
 
 ## Overview
@@ -77,3 +79,65 @@ npm install
 
 # Run tests
 npm test
+```
+
+---
+
+## Usage
+
+### Deploying the Contract:
+1. Write the smart contract in Clarity.
+2. Deploy it using tools like [Clarinet](https://docs.hiro.so/clarinet).
+3. Interact with the contract using the Stacks blockchain.
+
+### Interacting with the Contract:
+1. Donate funds:
+   ```clarity
+   (contract-call? .scholarship-fund donate-funds u100)
+   ```
+2. Award a scholarship (owner-only):
+   ```clarity
+   (contract-call? .scholarship-fund award-scholarship tx-sender u50)
+   ```
+3. Query total funds:
+   ```clarity
+   (contract-call? .scholarship-fund get-total-funds)
+   ```
+4. Get donor contribution:
+   ```clarity
+   (contract-call? .scholarship-fund get-donor-contribution tx-sender)
+   ```
+5. Retrieve scholar information:
+   ```clarity
+   (contract-call? .scholarship-fund get-scholar-info tx-sender)
+   ```
+
+---
+
+## Project Structure
+
+```plaintext
+.
+├── src/
+│   ├── scholarship-fund.clar  # Clarity smart contract
+│   └── tests/
+│       └── scholarship-fund.test.ts  # Unit tests
+├── package.json               # Node.js configuration
+├── vitest.config.js           # Vitest configuration
+└── README.md                  # Project documentation
+```
+
+---
+
+## Contributing
+
+Contributions are welcome! Please open an issue or submit a pull request for any feature suggestions or bug fixes.
+
+---
+
+## License
+
+This project is licensed under the MIT License. See the LICENSE file for details.
+```
+
+This README provides an overview, detailed documentation, usage examples, and a project structure to guide users through your Scholarship Fund Smart Contract project.
