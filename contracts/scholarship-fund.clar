@@ -131,3 +131,96 @@
              attendance: attendance,
              report-date: block-height})
         (ok true)))
+
+
+
+;; Add tier definitions
+(define-map scholarship-tiers 
+    uint 
+    {tier-name: (string-ascii 20),
+     amount: uint,
+     requirements: uint})
+
+;; Function to create tiers
+(define-public (create-scholarship-tier (tier-id uint) (name (string-ascii 20)) (amount uint) (min-score uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (map-set scholarship-tiers tier-id 
+            {tier-name: name,
+             amount: amount,
+             requirements: min-score})
+        (ok true)))
+
+
+;; Add referral tracking
+(define-map referrals 
+    principal 
+    {referrer: principal,
+     bonus-earned: uint})
+
+(define-public (refer-donor (new-donor principal))
+    (begin
+        (map-set referrals new-donor 
+            {referrer: tx-sender,
+             bonus-earned: u0})
+        (ok true)))
+
+
+
+(define-map mentors
+    principal
+    {expertise: (string-ascii 50),
+     availability: bool})
+
+(define-map mentor-assignments
+    principal  ;; scholar
+    principal) ;; mentor
+
+(define-public (register-as-mentor (expertise (string-ascii 50)))
+    (begin
+        (map-set mentors tx-sender 
+            {expertise: expertise,
+             availability: true})
+        (ok true)))
+
+
+
+(define-data-var total-scholars-funded uint u0)
+(define-data-var average-scholarship-amount uint u0)
+
+(define-public (update-analytics (new-amount uint))
+    (begin
+        (var-set total-scholars-funded (+ (var-get total-scholars-funded) u1))
+        (var-set average-scholarship-amount 
+            (/ (+ (var-get average-scholarship-amount) new-amount) u2))
+        (ok true)))
+
+
+(define-map scholarship-renewals
+    principal
+    {renewal-count: uint,
+     last-renewal: uint,
+     status: (string-ascii 20)})
+
+(define-public (request-renewal (scholar principal))
+    (begin
+        (asserts! (is-eq tx-sender scholar) err-owner-only)
+        (map-set scholarship-renewals scholar
+            {renewal-count: u1,
+             last-renewal: block-height,
+             status: "pending"})
+        (ok true)))
+
+
+
+(define-map donor-voting-weight
+    principal
+    {base-weight: uint,
+     bonus-weight: uint})
+
+(define-public (calculate-voting-weight (donor principal))
+    (let ((donation-amount (default-to u0 (map-get? donors donor))))
+        (map-set donor-voting-weight donor
+            {base-weight: (/ donation-amount u100),
+             bonus-weight: u0})
+        (ok true)))
