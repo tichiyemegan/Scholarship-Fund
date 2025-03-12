@@ -131,3 +131,200 @@
              attendance: attendance,
              report-date: block-height})
         (ok true)))
+
+
+
+;; Add tier definitions
+(define-map scholarship-tiers 
+    uint 
+    {tier-name: (string-ascii 20),
+     amount: uint,
+     requirements: uint})
+
+;; Function to create tiers
+(define-public (create-scholarship-tier (tier-id uint) (name (string-ascii 20)) (amount uint) (min-score uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (map-set scholarship-tiers tier-id 
+            {tier-name: name,
+             amount: amount,
+             requirements: min-score})
+        (ok true)))
+
+
+;; Add referral tracking
+(define-map referrals 
+    principal 
+    {referrer: principal,
+     bonus-earned: uint})
+
+(define-public (refer-donor (new-donor principal))
+    (begin
+        (map-set referrals new-donor 
+            {referrer: tx-sender,
+             bonus-earned: u0})
+        (ok true)))
+
+
+
+(define-map mentors
+    principal
+    {expertise: (string-ascii 50),
+     availability: bool})
+
+(define-map mentor-assignments
+    principal  ;; scholar
+    principal) ;; mentor
+
+(define-public (register-as-mentor (expertise (string-ascii 50)))
+    (begin
+        (map-set mentors tx-sender 
+            {expertise: expertise,
+             availability: true})
+        (ok true)))
+
+
+
+(define-data-var total-scholars-funded uint u0)
+(define-data-var average-scholarship-amount uint u0)
+
+(define-public (update-analytics (new-amount uint))
+    (begin
+        (var-set total-scholars-funded (+ (var-get total-scholars-funded) u1))
+        (var-set average-scholarship-amount 
+            (/ (+ (var-get average-scholarship-amount) new-amount) u2))
+        (ok true)))
+
+
+(define-map scholarship-renewals
+    principal
+    {renewal-count: uint,
+     last-renewal: uint,
+     status: (string-ascii 20)})
+
+(define-public (request-renewal (scholar principal))
+    (begin
+        (asserts! (is-eq tx-sender scholar) err-owner-only)
+        (map-set scholarship-renewals scholar
+            {renewal-count: u1,
+             last-renewal: block-height,
+             status: "pending"})
+        (ok true)))
+
+
+
+(define-map donor-voting-weight
+    principal
+    {base-weight: uint,
+     bonus-weight: uint})
+
+(define-public (calculate-voting-weight (donor principal))
+    (let ((donation-amount (default-to u0 (map-get? donors donor))))
+        (map-set donor-voting-weight donor
+            {base-weight: (/ donation-amount u100),
+             bonus-weight: u0})
+        (ok true)))
+
+
+(define-map funding-goals 
+    uint 
+    {target-amount: uint,
+     current-amount: uint,
+     deadline: uint})
+
+(define-public (create-funding-goal (goal-id uint) (target uint) (duration uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (map-set funding-goals goal-id
+            {target-amount: target,
+             current-amount: u0,
+             deadline: (+ block-height duration)})
+        (ok true)))
+
+(define-read-only (check-goal-progress (goal-id uint))
+    (map-get? funding-goals goal-id))
+
+
+(define-map donor-levels
+    principal
+    {level: (string-ascii 20),
+     total-donated: uint})
+
+(define-public (update-donor-level (donor principal) (amount uint))
+    (let ((current-total (get-donor-contribution donor)))
+        (map-set donor-levels donor
+            {level: (if (>= amount u1000000) "Platinum"
+                    (if (>= amount u500000) "Gold"
+                    (if (>= amount u100000) "Silver" "Bronze"))),
+             total-donated: (+ current-total amount)})
+        (ok true)))
+
+
+(define-map emergency-contacts
+    principal  ;; scholar
+    {contact: principal,
+     relationship: (string-ascii 20)})
+
+(define-public (set-emergency-contact (scholar principal) (contact principal) (relationship (string-ascii 20)))
+    (begin
+        (asserts! (or (is-eq tx-sender contract-owner) (is-eq tx-sender scholar)) err-owner-only)
+        (map-set emergency-contacts scholar
+            {contact: contact,
+             relationship: relationship})
+        (ok true)))
+
+
+(define-map payment-schedules
+    principal
+    {total-amount: uint,
+     installments: uint,
+     amount-per-installment: uint,
+     next-payment: uint})
+
+(define-public (setup-payment-schedule (scholar principal) (total uint) (num-installments uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (map-set payment-schedules scholar
+            {total-amount: total,
+             installments: num-installments,
+             amount-per-installment: (/ total num-installments),
+             next-payment: block-height})
+        (ok true)))
+
+
+(define-map scholar-feedback
+    principal
+    {rating: uint,
+     comment: (string-ascii 100),
+     timestamp: uint})
+
+(define-public (submit-feedback (rating uint) (comment (string-ascii 100)))
+    (begin
+        (asserts! (is-some (map-get? scholars tx-sender)) (err u105))
+        (map-set scholar-feedback tx-sender
+            {rating: rating,
+             comment: comment,
+             timestamp: block-height})
+        (ok true)))
+
+
+(define-map milestone-rewards
+    uint
+    {reward-amount: uint,
+     description: (string-ascii 50)})
+
+(define-public (set-milestone-reward (milestone-id uint) (amount uint) (description (string-ascii 50)))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (map-set milestone-rewards milestone-id
+            {reward-amount: amount,
+             description: description})
+        (ok true)))
+
+(define-public (claim-milestone-reward (scholar principal) (milestone-id uint))
+    (let ((reward (unwrap! (map-get? milestone-rewards milestone-id) (err u106))))
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (try! (as-contract (stx-transfer? (get reward-amount reward) 
+                                        (as-contract tx-sender) 
+                                        scholar)))
+        (ok true)))
