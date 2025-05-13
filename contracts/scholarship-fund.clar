@@ -666,3 +666,42 @@
 
 (define-read-only (get-community-impact (scholar principal))
     (map-get? community-contributions scholar))
+
+
+
+(define-map distribution-parameters
+    uint
+    {base-amount: uint,
+     market-multiplier: uint,
+     applicant-divisor: uint,
+     min-amount: uint,
+     max-amount: uint})
+
+(define-data-var current-distribution-id uint u1)
+(define-data-var total-qualified-applicants uint u0)
+
+(define-public (set-distribution-parameters 
+    (base uint) 
+    (multiplier uint) 
+    (divisor uint) 
+    (min uint) 
+    (max uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (map-set distribution-parameters (var-get current-distribution-id)
+            {base-amount: base,
+             market-multiplier: multiplier,
+             applicant-divisor: divisor,
+             min-amount: min,
+             max-amount: max})
+        (ok true)))
+
+(define-read-only (calculate-dynamic-amount)
+    (let ((params (unwrap! (map-get? distribution-parameters (var-get current-distribution-id)) (err u200)))
+          (raw-amount (/ (* (get base-amount params) (get market-multiplier params))
+                        (* (get applicant-divisor params) (var-get total-qualified-applicants)))))
+        (ok (if (< raw-amount (get min-amount params))
+            (get min-amount params)
+            (if (> raw-amount (get max-amount params))
+                (get max-amount params)
+                raw-amount)))))
