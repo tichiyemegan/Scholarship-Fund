@@ -617,3 +617,52 @@
 
 
 
+
+
+
+
+(define-map impact-metrics
+    principal
+    {employment-status: (string-ascii 20),
+     salary-range: uint,
+     industry: (string-ascii 50),
+     impact-score: uint})
+
+(define-map community-contributions
+    principal
+    {volunteer-hours: uint,
+     projects-completed: uint,
+     people-impacted: uint})
+
+(define-public (update-scholar-impact 
+    (scholar principal) 
+    (status (string-ascii 20)) 
+    (salary uint) 
+    (industry (string-ascii 50)))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (map-set impact-metrics scholar
+            {employment-status: status,
+             salary-range: salary,
+             industry: industry,
+             impact-score: (+ salary u100)})
+        (ok true)))
+
+(define-public (record-community-impact 
+    (scholar principal) 
+    (hours uint) 
+    (projects uint) 
+    (people uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (map-set community-contributions scholar
+            {volunteer-hours: hours,
+             projects-completed: projects,
+             people-impacted: people})
+        (ok true)))
+
+(define-read-only (get-scholar-impact (scholar principal))
+    (map-get? impact-metrics scholar))
+
+(define-read-only (get-community-impact (scholar principal))
+    (map-get? community-contributions scholar))
