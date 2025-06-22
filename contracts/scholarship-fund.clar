@@ -705,3 +705,108 @@
             (if (> raw-amount (get max-amount params))
                 (get max-amount params)
                 raw-amount)))))
+
+(define-map auto-distribution-rules
+    uint
+    {min-score: uint,
+     max-awards: uint,
+     award-amount: uint,
+     is-active: bool,
+     distribution-date: uint})
+
+(define-map auto-distribution-queue
+    {rule-id: uint, applicant: principal}
+    {queue-position: uint,
+     qualification-score: uint,
+     auto-approved: bool})
+
+(define-data-var auto-rule-count uint u0)
+(define-data-var current-distribution-batch uint u0)
+
+(define-public (create-auto-distribution-rule 
+    (min-score uint) 
+    (max-awards uint) 
+    (award-amount uint) 
+    (distribution-date uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (asserts! (<= award-amount (var-get total-funds)) err-insufficient-funds)
+        (var-set auto-rule-count (+ (var-get auto-rule-count) u1))
+        (map-set auto-distribution-rules (var-get auto-rule-count)
+            {min-score: min-score,
+             max-awards: max-awards,
+             award-amount: award-amount,
+             is-active: true,
+             distribution-date: distribution-date})
+        (ok (var-get auto-rule-count))))
+
+(define-public (queue-for-auto-distribution (rule-id uint))
+    (let ((rule (unwrap! (map-get? auto-distribution-rules rule-id) (err u200)))
+          (application (unwrap! (map-get? scholarship-applications tx-sender) (err u201))))
+        (asserts! (get is-active rule) (err u202))
+        (asserts! (>= (get academic-score application) (get min-score rule)) (err u203))
+        (asserts! (>= block-height (get distribution-date rule)) (err u204))
+        (map-set auto-distribution-queue 
+            {rule-id: rule-id, applicant: tx-sender}
+            {queue-position: u0,
+             qualification-score: (get academic-score application),
+             auto-approved: false})
+        (ok true)))
+
+(define-public (process-auto-distribution (rule-id uint))
+    (let ((rule (unwrap! (map-get? auto-distribution-rules rule-id) (err u200))))
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (asserts! (get is-active rule) (err u202))
+        (asserts! (>= block-height (get distribution-date rule)) (err u204))
+        (asserts! (<= (get award-amount rule) (var-get total-funds)) err-insufficient-funds)
+        (var-set current-distribution-batch (+ (var-get current-distribution-batch) u1))
+        (ok true)))
+
+(define-public (execute-auto-award (rule-id uint) (recipient principal))
+    (let ((rule (unwrap! (map-get? auto-distribution-rules rule-id) (err u200)))
+          (queue-entry (unwrap! (map-get? auto-distribution-queue {rule-id: rule-id, applicant: recipient}) (err u205))))
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (asserts! (not (get auto-approved queue-entry)) (err u206))
+        (asserts! (<= (get award-amount rule) (var-get total-funds)) err-insufficient-funds)
+        (try! (as-contract (stx-transfer? (get award-amount rule) (as-contract tx-sender) recipient)))
+        (map-set scholars recipient 
+            {amount: (get award-amount rule), 
+             status: "auto-awarded"})
+        (map-set auto-distribution-queue 
+            {rule-id: rule-id, applicant: recipient}
+            {queue-position: (get queue-position queue-entry),
+             qualification-score: (get qualification-score queue-entry),
+             auto-approved: true})
+        (var-set total-funds (- (var-get total-funds) (get award-amount rule)))
+        (ok (get award-amount rule))))
+
+(define-public (deactivate-auto-rule (rule-id uint))
+    (let ((rule (unwrap! (map-get? auto-distribution-rules rule-id) (err u200))))
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (map-set auto-distribution-rules rule-id
+            {min-score: (get min-score rule),
+             max-awards: (get max-awards rule),
+             award-amount: (get award-amount rule),
+             is-active: false,
+             distribution-date: (get distribution-date rule)})
+        (ok true)))
+
+(define-read-only (get-auto-distribution-rule (rule-id uint))
+    (map-get? auto-distribution-rules rule-id))
+
+(define-read-only (get-queue-status (rule-id uint) (applicant principal))
+    (map-get? auto-distribution-queue {rule-id: rule-id, applicant: applicant}))
+
+(define-read-only (check-auto-eligibility (rule-id uint) (applicant principal))
+    (let ((rule (map-get? auto-distribution-rules rule-id))
+          (application (map-get? scholarship-applications applicant)))
+        (match rule
+            some-rule (match application
+                some-app (ok {eligible: (and 
+                    (get is-active some-rule)
+                    (>= (get academic-score some-app) (get min-score some-rule))
+                    (>= block-height (get distribution-date some-rule))),
+                    score: (get academic-score some-app),
+                    required-score: (get min-score some-rule)})
+                (err u201))
+            (err u200))))
