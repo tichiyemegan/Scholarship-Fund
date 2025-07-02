@@ -8,7 +8,24 @@
 
 ;; Data Variables
 (define-data-var total-funds uint u0)
+(define-map committee-members principal bool)
+(define-map multisig-proposals
+    uint
+    {proposer: principal,
+     scholar: principal,
+     amount: uint,
+     approvals: uint,
+     required-approvals: uint,
+     deadline: uint,
+     status: (string-ascii 20)})
 
+(define-map proposal-votes
+    {proposal-id: uint, voter: principal}
+    bool)
+
+(define-data-var committee-size uint u0)
+(define-data-var proposal-counter uint u0)
+(define-data-var approval-threshold uint u3)
 ;; Data Maps
 (define-map donors principal uint)
 (define-map scholars 
@@ -810,3 +827,119 @@
                     required-score: (get min-score some-rule)})
                 (err u201))
             (err u200))))
+
+
+
+
+(define-public (add-committee-member (member principal))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (asserts! (not (default-to false (map-get? committee-members member))) (err u300))
+        (map-set committee-members member true)
+        (var-set committee-size (+ (var-get committee-size) u1))
+        (ok true)))
+
+(define-public (remove-committee-member (member principal))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (asserts! (default-to false (map-get? committee-members member)) (err u301))
+        (map-set committee-members member false)
+        (var-set committee-size (- (var-get committee-size) u1))
+        (ok true)))
+
+(define-public (set-approval-threshold (threshold uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (asserts! (<= threshold (var-get committee-size)) (err u302))
+        (var-set approval-threshold threshold)
+        (ok true)))
+
+(define-public (propose-multisig-scholarship (scholar principal) (amount uint) (deadline-blocks uint))
+    (begin
+        (asserts! (default-to false (map-get? committee-members tx-sender)) (err u303))
+        (asserts! (<= amount (var-get total-funds)) err-insufficient-funds)
+        (var-set proposal-counter (+ (var-get proposal-counter) u1))
+        (map-set multisig-proposals (var-get proposal-counter)
+            {proposer: tx-sender,
+             scholar: scholar,
+             amount: amount,
+             approvals: u1,
+             required-approvals: (var-get approval-threshold),
+             deadline: (+ block-height deadline-blocks),
+             status: "pending"})
+        (map-set proposal-votes 
+            {proposal-id: (var-get proposal-counter), voter: tx-sender} 
+            true)
+        (ok (var-get proposal-counter))))
+
+(define-public (vote-on-proposal (proposal-id uint) (approve bool))
+    (let ((proposal (unwrap! (map-get? multisig-proposals proposal-id) (err u304)))
+          (has-voted (default-to false (map-get? proposal-votes {proposal-id: proposal-id, voter: tx-sender}))))
+        (asserts! (default-to false (map-get? committee-members tx-sender)) (err u303))
+        (asserts! (not has-voted) (err u305))
+        (asserts! (is-eq (get status proposal) "pending") (err u306))
+        (asserts! (< block-height (get deadline proposal)) (err u307))
+        (if approve
+            (begin
+                (map-set proposal-votes {proposal-id: proposal-id, voter: tx-sender} true)
+                (map-set multisig-proposals proposal-id
+                    {proposer: (get proposer proposal),
+                     scholar: (get scholar proposal),
+                     amount: (get amount proposal),
+                     approvals: (+ (get approvals proposal) u1),
+                     required-approvals: (get required-approvals proposal),
+                     deadline: (get deadline proposal),
+                     status: (if (>= (+ (get approvals proposal) u1) (get required-approvals proposal))
+                                "approved"
+                                "pending")})
+                (ok true))
+            (begin
+                (map-set proposal-votes {proposal-id: proposal-id, voter: tx-sender} false)
+                (ok false)))))
+
+(define-public (execute-multisig-scholarship (proposal-id uint))
+    (let ((proposal (unwrap! (map-get? multisig-proposals proposal-id) (err u304))))
+        (asserts! (is-eq (get status proposal) "approved") (err u308))
+        (asserts! (<= (get amount proposal) (var-get total-funds)) err-insufficient-funds)
+        (try! (as-contract (stx-transfer? (get amount proposal) (as-contract tx-sender) (get scholar proposal))))
+        (map-set scholars (get scholar proposal) 
+            {amount: (get amount proposal), 
+             status: "multisig-awarded"})
+        (map-set multisig-proposals proposal-id
+            {proposer: (get proposer proposal),
+             scholar: (get scholar proposal),
+             amount: (get amount proposal),
+             approvals: (get approvals proposal),
+             required-approvals: (get required-approvals proposal),
+             deadline: (get deadline proposal),
+             status: "executed"})
+        (var-set total-funds (- (var-get total-funds) (get amount proposal)))
+        (ok (get amount proposal))))
+
+(define-public (cancel-expired-proposal (proposal-id uint))
+    (let ((proposal (unwrap! (map-get? multisig-proposals proposal-id) (err u304))))
+        (asserts! (>= block-height (get deadline proposal)) (err u309))
+        (asserts! (is-eq (get status proposal) "pending") (err u310))
+        (map-set multisig-proposals proposal-id
+            {proposer: (get proposer proposal),
+             scholar: (get scholar proposal),
+             amount: (get amount proposal),
+             approvals: (get approvals proposal),
+             required-approvals: (get required-approvals proposal),
+             deadline: (get deadline proposal),
+             status: "expired"})
+        (ok true)))
+
+(define-read-only (get-committee-status (member principal))
+    (default-to false (map-get? committee-members member)))
+
+(define-read-only (get-proposal-details (proposal-id uint))
+    (map-get? multisig-proposals proposal-id))
+
+(define-read-only (get-vote-status (proposal-id uint) (voter principal))
+    (map-get? proposal-votes {proposal-id: proposal-id, voter: voter}))
+
+(define-read-only (get-committee-info)
+    (ok {committee-size: (var-get committee-size),
+         approval-threshold: (var-get approval-threshold),
+         total-proposals: (var-get proposal-counter)}))
